@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
 import requests
 import io
 import time
@@ -133,9 +132,25 @@ def get_pe_ratio(ticker):
         pe = info.get('trailingPE')
         if pe is None:
             pe = info.get('forwardPE')
-        return pe if pe is not None else float('inf')
+        
+        if pe is not None:
+            return float(pe)
+        return float('inf')
     except:
         return float('inf')
+
+def calculate_rsi(series, period=14):
+    """Calculate RSI using Wilder's Smoothing Method via EWM."""
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0))
+    loss = (-delta.where(delta < 0, 0))
+    
+    # Wilder's smoothing is equivalent to EWM with alpha = 1/period
+    avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
+    
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
 
 @st.cache_data(ttl=60) # Cache for 1 min to allow manual refresh within a minute block
 def screen_stocks(tickers, max_pe=20, min_vol_ratio=2.0, min_rsi=50):
@@ -164,17 +179,14 @@ def screen_stocks(tickers, max_pe=20, min_vol_ratio=2.0, min_rsi=50):
             df['Vol_MA_20'] = df['Volume'].rolling(window=20).mean()
             
             # Calculate RSI (14)
-            df.ta.rsi(length=14, append=True)
-            rsi_cols = [c for c in df.columns if 'RSI' in c]
-            if not rsi_cols: continue
-            rsi_col = rsi_cols[0]
+            df['RSI'] = calculate_rsi(df['Close'], period=14)
             
             # Get latest values
             latest = df.iloc[-1]
             current_price = latest['Close']
             current_vol = latest['Volume']
             vol_ma = latest['Vol_MA_20']
-            rsi = latest[rsi_col]
+            rsi = latest['RSI']
             
             vol_ratio = current_vol / vol_ma if vol_ma > 0 else 0
             
